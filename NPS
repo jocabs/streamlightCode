@@ -1,0 +1,47 @@
+# app.py
+import streamlit as st
+import pandas as pd
+
+st.set_page_config(page_title="NPS Report Viewer", layout="wide")
+st.title("📊 NPS Report Viewer")
+
+# Upload CSV
+uploaded_file = st.file_uploader(
+    "Upload your NPS_Report.csv",
+    type=["csv"],
+    key="nps_csv_unique"
+)
+
+if uploaded_file:
+    try:
+        # Read CSV
+        df = pd.read_csv(uploaded_file)
+
+        # Show dataframe
+        st.subheader("Report Table")
+        st.dataframe(df, use_container_width=True)
+
+        # Optional: filtering by columns
+        st.subheader("Filter Report")
+        columns = df.columns.tolist()
+        selected_column = st.selectbox("Select a column to filter", columns)
+        unique_values = df[selected_column].dropna().unique()
+        selected_values = st.multiselect(f"Select {selected_column} value(s)", unique_values, default=unique_values)
+
+        filtered_df = df[df[selected_column].isin(selected_values)]
+        st.dataframe(filtered_df, use_container_width=True)
+
+        # Optional: Download filtered CSV
+        csv = filtered_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Filtered CSV",
+            data=csv,
+            file_name="NPS_Report_filtered.csv",
+            mime="text/csv",
+            key="download_filtered_csv"
+        )
+
+    except Exception as e:
+        st.error(f"⚠️ Error reading CSV: {e}")
+else:
+    st.info("Please upload your NPS_Report.csv file to view the report.")
