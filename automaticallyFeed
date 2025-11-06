@@ -49,3 +49,49 @@ else:
 
     except Exception as e:
         st.error(f"⚠️ Error reading CSV: {e}")
+
+-------
+import streamlit as st
+import pandas as pd
+import time
+import os
+from streamlit_autorefresh import st_autorefresh
+
+# ==============================
+# CONFIGURATION
+# ==============================
+CSV_FOLDER = os.path.expanduser("~/nps_app/csv")
+CSV_FILENAME = "NPS_Report.csv"
+CHECK_INTERVAL = 10  # seconds
+
+csv_path = os.path.join(CSV_FOLDER, CSV_FILENAME)
+
+# ==============================
+# AUTO-REFRESH
+# ==============================
+# Unique key for this autorefresh component
+st_autorefresh(interval=CHECK_INTERVAL * 1000, key="csv_refresh_unique")
+
+# ==============================
+# TITLE
+# ==============================
+st.title("📊 NPS Report Viewer")
+
+# ==============================
+# CHECK FOR CSV
+# ==============================
+if not os.path.exists(csv_path):
+    st.warning("Waiting for CSV to be generated...")
+else:
+    # Load CSV into a dataframe
+    try:
+        df = pd.read_csv(csv_path)
+        st.success(f"CSV loaded: {CSV_FILENAME}")
+        st.dataframe(df)
+    except Exception as e:
+        st.error(f"Error loading CSV: {e}")
+
+# ==============================
+# OPTIONAL: AUTO-REFRESH MESSAGE
+# ==============================
+st.info(f"Page refreshes every {CHECK_INTERVAL} seconds to check for new CSV data.")
