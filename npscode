@@ -74,3 +74,206 @@ else:
     st.info("👈 Use the sidebar to upload or select a CSV file.")
 irriadmin@ubuntutest:~/nps_app/pages$
 
+
+Csv
+irriadmin@ubuntutest:~/nps_app$  cat convert_radius_to_csv.py
+import xml.etree.ElementTree as ET
+import pandas as pd
+import os
+from datetime import date
+
+# Paths
+log_path = os.path.expanduser("~/nps_app/logs/IN251104.log")
+csv_folder = os.path.expanduser("~/nps_app/csv")
+os.makedirs(csv_folder, exist_ok=True)
+csv_path = os.path.join(csv_folder, "NPS_Report.csv")
+
+# Read and wrap XML
+with open(log_path, "r") as f:
+    xml_content = f.read()
+
+wrapped_xml = f"<Events>{xml_content}</Events>"
+root = ET.fromstring(wrapped_xml)
+
+data = []
+today = date.today().strftime("%Y-%m-%d")
+
+for event in root.findall("Event"):
+    timestamp = event.findtext("Timestamp", default="").strip()
+    username = event.findtext("User-Name", default="").strip()
+    nas_ip = event.findtext("NAS-IP-Address", default="").strip()
+    reason = event.findtext("Reason-Code", default="").strip()
+    client_mac = event.findtext("Calling-Station-Id", default="").strip()
+    called_id = event.findtext("Called-Station-Id", default="").strip()
+
+    # Split Called-Station-Id into AP MAC and SSID
+    ap_mac, ssid = ("", "")
+    if ":" in called_id:
+        parts = called_id.split(":")
+        ap_mac = parts[0]
+        ssid = parts[1]
+
+    # Map reason code to result
+    result_map = {"0": "Success", "16": "Accounting"}
+    result = result_map.get(reason, "Other")
+
+    # Combine timestamp with today's date
+    full_timestamp = f"{today} {timestamp}" if timestamp else ""
+
+    data.append({
+        "Timestamp": full_timestamp,
+        "UserName": username,
+        "NASIP": nas_ip,
+        "ClientMAC": client_mac,
+        "AccessPoint": ap_mac,
+        "SSID": ssid,
+        "ReasonCode": reason,
+        "Result": result
+    })
+
+# Save CSV
+df = pd.DataFrame(data)
+df.to_csv(csv_path, index=False)
+print(f"✅ CSV generated at {csv_path}")
+
+
+_______
+sudo cat nps_report.py
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+import xml.etree.ElementTree as ET
+
+# --- Paths ---
+BASE_DIR = os.path.dirname(__file__)
+LOGS_DIR = os.path.join(BASE_DIR, "../logs")
+CSV_DIR = os.path.join(BASE_DIR, "../csv/nps")
+os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(CSV_DIR, exist_ok=True)
+
+# --- Page setup ---
+st.set_page_config(page_title="NPS Report Viewer", layout="wide")
+st.title("📊 NPS Report Viewer")
+st.sidebar.header("📁 File Controls")
+
+# --- Conversion function ---
+def convert_log_to_csv(log_path):
+    """Converts a .log file to CSV, ensures timestamps"""
+    with open(log_path, "r") as f:
+        xml_content = f.read()
+
+    wrapped_xml = f"<Events>{xml_content}</Events>"
+    root = ET.fromstring(wrapped_xml)
+
+    data = []
+    conversion_date = datetime.now().strftime("%Y-%m-%d")
+
+    for event in root.findall("Event"):
+        timestamp = event.findtext("Timestamp", default="").strip()
+        username = event.findtext("User-Name", default="").strip()
+        nas_ip = event.findtext("NAS-IP-Address", default="").strip()
+        reason = event.findtext("Reason-Code", default="").strip()
+        client_mac = event.findtext("Calling-Station-Id", default="").strip()
+        called_id = event.findtext("Called-Station-Id", default="").strip()
+
+        ap_mac, ssid = ("", "")
+        if ":" in called_id:
+            parts = called_id.split(":")
+            ap_mac = parts[0]
+            ssid = parts[1]
+
+        result_map = {"0": "Success", "16": "Accounting"}
+        result = result_map.get(reason, "Other")
+
+        # Ensure timestamp exists
+        full_timestamp = f"{conversion_date} {timestamp}" if timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        data.append({
+            "Timestamp": full_timestamp,
+            "UserName": username,
+            "NASIP": nas_ip,
+            "ClientMAC": client_mac,
+            "AccessPoint": ap_mac,
+            "SSID": ssid,
+            "ReasonCode": reason,
+            "Result": result
+        })
+
+    df = pd.DataFrame(data)
+    base_name = os.path.splitext(os.path.basename(log_path))[0]
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"{base_name}_{timestamp_str}.csv"
+    csv_path = os.path.join(CSV_DIR, csv_filename)
+    df.to_csv(csv_path, index=False)
+    return csv_filename
+
+# --- Automatic conversion of new logs ---
+def auto_convert_logs():
+    converted_basenames = set(f.rsplit("_", 1)[0] for f in os.listdir(CSV_DIR) if f.endswith(".csv"))
+    log_files = [f for f in os.listdir(LOGS_DIR) if f.endswith(".log")]
+    new_csvs = []
+
+    for log_file in log_files:
+        base_name = os.path.splitext(log_file)[0]
+        if base_name not in converted_basenames:
+            log_path = os.path.join(LOGS_DIR, log_file)
+            try:
+                csv_name = convert_log_to_csv(log_path)
+                new_csvs.append(csv_name)
+                st.sidebar.success(f"Auto converted: {log_file} → {csv_name}")
+            except Exception as e:
+                st.sidebar.error(f"Conversion failed for {log_file}: {e}")
+
+    return new_csvs
+
+# Run automatic conversion
+auto_csvs = auto_convert_logs()
+
+# --- Manual log upload ---
+uploaded_log = st.sidebar.file_uploader("📤 Upload a new NPS LOG file", type=["log"], key="log_upload")
+converted_csv_name = None
+
+if uploaded_log:
+    log_path = os.path.join(LOGS_DIR, uploaded_log.name)
+    with open(log_path, "wb") as f:
+        f.write(uploaded_log.getbuffer())
+    st.sidebar.success(f"✅ Uploaded LOG: {uploaded_log.name}")
+    try:
+        converted_csv_name = convert_log_to_csv(log_path)
+        st.sidebar.success(f"✅ Converted to CSV: {converted_csv_name}")
+    except Exception as e:
+        st.sidebar.error(f"❌ Conversion failed: {e}")
+
+# --- Manual CSV upload ---
+uploaded_csv = st.sidebar.file_uploader("📤 Upload a new NPS CSV file", type=["csv"], key="csv_upload")
+if uploaded_csv:
+    csv_path = os.path.join(CSV_DIR, uploaded_csv.name)
+    with open(csv_path, "wb") as f:
+        f.write(uploaded_csv.getbuffer())
+    st.sidebar.success(f"✅ Uploaded CSV: {uploaded_csv.name}")
+
+# --- Select CSV to view ---
+existing_csvs = [f for f in os.listdir(CSV_DIR) if f.endswith(".csv")]
+selected_csv = None
+if converted_csv_name:
+    selected_csv = converted_csv_name
+elif auto_csvs:
+    selected_csv = auto_csvs[-1]
+elif existing_csvs:
+    selected_csv = st.sidebar.selectbox("📂 Select existing CSV", sorted(existing_csvs, reverse=True))
+
+# --- Display CSV ---
+if selected_csv:
+    file_path = os.path.join(CSV_DIR, selected_csv)
+    try:
+        df = pd.read_csv(file_path, encoding="utf-8")
+    except:
+        df = pd.read_csv(file_path, encoding="latin1")
+    st.success(f"📄 Viewing: {selected_csv}")
+    st.dataframe(df, use_container_width=True)
+else:
+    st.info("👈 Use sidebar to upload/select a CSV or LOG file.")
+
+
+
