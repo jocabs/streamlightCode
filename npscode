@@ -1,0 +1,76 @@
+/home/irriadmin/nps_app/
+│
+├── app.py                          ← 🏠 Main Streamlit Home Dashboard (Navigation)
+│
+├── pages/                          ← 📂 Folder for other Streamlit pages
+│   ├── 1_NPS_Report_Viewer.py      ← Page 1: NPS Report Viewer
+│   └── 2_Asset_Inventory.py        ← Page 2: Asset Inventory
+│
+├── scripts/                        ← ⚙️ Helper scripts folder
+│   └── convert_radius_to_csv.py    ← Converts RADIUS logs → CSV
+│
+├── logs/                           ← 🧾 Folder where RADIUS logs (.log) are stored
+│   └── IN251104.log
+│
+├── csv/                            ← 📊 Folder where converted CSVs are saved
+│   └── NPS_Report_20251106.csv
+│
+├── csv_gen.log                     ← Log of CSV generation
+├── streamlit.log                   ← Streamlit runtime logs
+└── README.md                       ← Optional documentation file
+
+
+sudo cat nps_report.py
+import streamlit as st
+import pandas as pd
+import os
+
+# --- Directory for NPS CSV files ---
+CSV_DIR = os.path.join(os.path.dirname(__file__), "../csv/nps")
+os.makedirs(CSV_DIR, exist_ok=True)
+
+# --- Page setup ---
+st.set_page_config(page_title="NPS Report Viewer", layout="wide")
+st.title("📊 NPS Report Viewer")
+
+# --- Sidebar: Upload and browse ---
+st.sidebar.header("📁 File Controls")
+
+# Upload new CSV
+uploaded_file = st.sidebar.file_uploader("📤 Upload a new NPS CSV file", type=["csv"], key="nps_upload")
+
+if uploaded_file:
+    file_path = os.path.join(CSV_DIR, uploaded_file.name)
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    st.sidebar.success(f"✅ Uploaded: {uploaded_file.name}")
+
+# List existing CSV files
+existing_csvs = [f for f in os.listdir(CSV_DIR) if f.lower().endswith(".csv")]
+
+selected_csv = None
+if existing_csvs:
+    selected_csv = st.sidebar.selectbox("📂 Select an existing CSV file", existing_csvs, key="nps_csv_select")
+else:
+    st.sidebar.info("ℹ️ No CSV files found. Please upload one.")
+
+# --- Main area: Data preview ---
+if selected_csv:
+    file_path = os.path.join(CSV_DIR, selected_csv)
+    try:
+        df = pd.read_csv(file_path, encoding="utf-8")
+    except UnicodeDecodeError:
+        df = pd.read_csv(file_path, encoding="latin1")
+
+    st.success(f"📄 Viewing: {selected_csv}")
+    st.dataframe(df, use_container_width=True)
+elif uploaded_file:
+    # If file was just uploaded, load that immediately
+    file_path = os.path.join(CSV_DIR, uploaded_file.name)
+    df = pd.read_csv(file_path, encoding="utf-8", on_bad_lines="skip")
+    st.success(f"📄 Viewing: {uploaded_file.name}")
+    st.dataframe(df, use_container_width=True)
+else:
+    st.info("👈 Use the sidebar to upload or select a CSV file.")
+irriadmin@ubuntutest:~/nps_app/pages$
+
