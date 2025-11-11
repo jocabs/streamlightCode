@@ -1,1 +1,66 @@
+Summary
 
+This Streamlit page (1_NPS_Log_Upload.py) is a full-width NPS Log Upload dashboard with login protection.
+
+Features:
+
+Login/Authentication
+
+Uses check_auth() from auth.py to protect the page.
+
+Sidebar File Uploads
+
+Upload .log files → automatically converts to CSV and saves in ~/nps_app/csv/nps.
+
+Upload .csv files → simply saves for historical view.
+
+Historical Data View
+
+Reads all CSVs in the CSV directory.
+
+Concatenates them into a single DataFrame.
+
+Sorts by timestamp and displays in a maximized table.
+
+Existing CSV Files List
+
+Displays all CSV files with filename, last modified, and size.
+
+Searchable and sortable table.
+
+Download button for each CSV file.
+
+Layout
+
+Maximized width using st.set_page_config(layout="wide").
+
+Sidebar remains for uploads; main page displays historical data and CSV info.
+
+Folder Structure (relevant)
+~/nps_app/
+│
+├── app.py                        → Main app (handles login / multi-page navigation)
+├── auth.py                        → Authentication functions
+├── csv/
+│   └── nps/                       → Converted CSV files stored here
+├── logs/                           → Raw .log files
+├── pages/
+│   ├── 1_NPS_Log_Upload.py        → This updated page
+│   ├── NPS_History.py             → Historical page (optional)
+│   └── inventory.py               → Other app pages
+
+Page Layout Structure
+
+1️⃣ Sidebar (left)
+
+Upload .log file → converts to CSV
+
+Upload .csv file → just saves
+
+2️⃣ Main Page (wide container)
+
+Section	Content
+Header	📤 NPS Log Upload
+Historical NPS Data	Table combining all CSVs with timestamps
+Existing CSV Files	Table showing: File Name
+CSV Downloads	Download buttons for each CSV
