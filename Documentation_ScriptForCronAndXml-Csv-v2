@@ -1,1 +1,74 @@
+🧩 Files and Functions
+1. auto_nps_watchdog.py
 
+Purpose: Monitors ~/nps_app/logs/ for new .log files and converts them automatically to CSV files in ~/nps_app/csv/nps/.
+
+What it does:
+
+Converts .log XML files to .csv with timestamps.
+
+Deletes older CSVs for the same log name to avoid duplicates.
+
+Runs continuously (via Watchdog) or periodically (via Cron).
+
+Logs all actions to ~/nps_app/auto_nps_watchdog.log.
+
+2. Cron Job
+
+Purpose: Automatically runs the conversion script every 15 minutes.
+
+Entry in Cron (checked via sudo crontab -e):
+
+*/15 * * * * /usr/bin/python3 /home/irriadmin/nps_app/auto_nps_watchdog.py >> /home/irriadmin/nps_app/auto_nps_watchdog.log 2>&1
+
+
+What happens:
+
+Every 15 minutes, cron starts auto_nps_watchdog.py.
+
+The script checks for .log files, converts new ones, and exits (or keeps watching if not modified).
+
+Output and errors go to auto_nps_watchdog.log.
+
+3. Folder Structure
+~/nps_app/
+│
+├── app.py                        → main Streamlit dashboard
+├── auto_nps_watchdog.py          → automatic log-to-CSV script
+├── csv/
+│   └── nps/                      → stores converted CSV files
+├── logs/                         → contains .log files to be converted
+├── pages/
+│   ├── 1_NPS_Log_Upload.py       → Streamlit page for manual upload/view
+│   ├── NPS_History.py            → Streamlit page for historical data
+│   └── inventory.py              → other app page
+
+⚙️ Behavior
+
+When a new .log file appears in ~/nps_app/logs/:
+
+The script detects it (Watchdog) or finds it on the next cron run.
+
+Converts it to a CSV and saves it in ~/nps_app/csv/nps/.
+
+If a previous CSV exists for that log, it deletes it first.
+
+Every 15 minutes, cron re-runs the process automatically.
+
+You can view logs live using:
+
+sudo tail -f ~/nps_app/auto_nps_watchdog.log
+
+
+The converted CSVs appear in the Streamlit NPS page automatically.
+
+🧠 Recommendation
+
+Currently, both Watchdog and Cron can trigger the script — meaning:
+
+Cron ensures it runs on schedule (every 15 min).
+
+Watchdog continuously monitors in real-time while the script is active.
+
+✅ If you want a simple periodic check → Keep only cron.
+✅ If you want instant conversion the moment a new log arrives → Keep watchdog running continuously (not via cron).
