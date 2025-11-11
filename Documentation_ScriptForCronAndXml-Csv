@@ -1,0 +1,163 @@
+
+Install cron ----for the "auto_nps_watchdog.py"
+####### command for cron ########
+sudo crontab -e 
+
+Add inside the file 
+*/15 * * * * /usr/bin/python3 /home/irriadmin/nps_app/auto_nps_watchdog.py >> /home/irriadmin/nps_app/logs/auto_nps_watchdog_cron.log 2>&1
+
+Explanation
+
+= */15 * * * * → Every 15 minutes
+= /usr/bin/python3 → Full path to Python 3
+= /home/irriadmin/nps_app/auto_nps_watchdog.py → Your script path
+= >> ... 2>&1 → Append stdout and stderr to a log file for debugging
+
+############# create a .py that convert xml to csv file ###############
+#!/usr/bin/env python3
+
+import os
+import time
+import pandas as pd
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# -------------------------------
+# Paths (use absolute paths for cron)
+# -------------------------------
+BASE_DIR = "/home/irriadmin/nps_app"
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+CSV_DIR = os.path.join(BASE_DIR, "csv/nps")
+LOG_FILE = os.path.join(BASE_DIR, "auto_nps_watchdog.log")
+
+os.makedirs(CSV_DIR, exist_ok=True)
+
+# Track converted logs
+converted_logs = set()
+
+# -------------------------------
+# Logging helper
+# -------------------------------
+def log(msg):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(LOG_FILE, "a") as f:
+        f.write(f"[{timestamp}] {msg}\n")
+    print(f"[{timestamp}] {msg}")
+
+# -------------------------------
+# Conversion function
+# -------------------------------
+def convert_log_to_csv(log_path):
+    """Convert a .log XML file into CSV."""
+    try:
+        with open(log_path, "r") as f:
+            xml_content = f.read()
+
+        wrapped_xml = f"<Events>{xml_content}</Events>"
+        root = ET.fromstring(wrapped_xml)
+
+        data = []
+        conversion_time = datetime.now()
+
+        for event in root.findall("Event"):
+            timestamp = event.findtext("Timestamp", default="").strip()
+            username = event.findtext("User-Name", default="").strip()
+            nas_ip = event.findtext("NAS-IP-Address", default="").strip()
+            reason = event.findtext("Reason-Code", default="").strip()
+            client_mac = event.findtext("Calling-Station-Id", default="").strip()
+            called_id = event.findtext("Called-Station-Id", default="").strip()
+
+            ap_mac, ssid = ("", "")
+            if ":" in called_id:
+                parts = called_id.split(":")
+                ap_mac = parts[0]
+                ssid = parts[1]
+
+            result_map = {"0": "Success", "16": "Accounting"}
+            result = result_map.get(reason, "Other")
+
+            # Full timestamp
+            if timestamp:
+                try:
+                    event_time = datetime.strptime(timestamp, "%H:%M:%S")
+                    full_timestamp = conversion_time.replace(
+                        hour=event_time.hour,
+                        minute=event_time.minute,
+                        second=event_time.second
+                    )
+                except Exception:
+                    full_timestamp = conversion_time
+            else:
+                full_timestamp = conversion_time
+
+            data.append({
+                "Timestamp": full_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "UserName": username,
+                "NASIP": nas_ip,
+                "ClientMAC": client_mac,
+                "AccessPoint": ap_mac,
+                "SSID": ssid,
+                "ReasonCode": reason,
+                "Result": result
+            })
+
+        # Save CSV
+        base_name = os.path.splitext(os.path.basename(log_path))[0]
+        timestamp_str = conversion_time.strftime("%Y%m%d_%H%M%S")
+        csv_filename = f"{base_name}_{timestamp_str}.csv"
+        csv_path = os.path.join(CSV_DIR, csv_filename)
+
+        # Remove existing CSVs for the same log
+        for f in os.listdir(CSV_DIR):
+            if f.startswith(base_name):
+                os.remove(os.path.join(CSV_DIR, f))
+                log(f"Deleted old CSV: {f}")
+
+        df = pd.DataFrame(data)
+        df.to_csv(csv_path, index=False)
+        log(f"✅ CSV generated: {csv_path}")
+
+    except Exception as e:
+        log(f"❌ Error converting {log_path}: {e}")
+
+# -------------------------------
+# Watchdog handler
+# -------------------------------
+class LogHandler(FileSystemEventHandler):
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        if event.src_path.endswith(".log") and event.src_path not in converted_logs:
+            log(f"👀 New log detected: {event.src_path}")
+            convert_log_to_csv(event.src_path)
+            converted_logs.add(event.src_path)
+
+# -------------------------------
+# Main
+# -------------------------------
+if __name__ == "__main__":
+    log("Script started")
+
+    # Convert existing logs on startup
+    for file in os.listdir(LOG_DIR):
+        if file.endswith(".log"):
+            log_path = os.path.join(LOG_DIR, file)
+            if log_path not in converted_logs:
+                convert_log_to_csv(log_path)
+                converted_logs.add(log_path)
+
+    # Start watchdog observer
+    event_handler = LogHandler()
+    observer = Observer()
+    observer.schedule(event_handler, LOG_DIR, recursive=False)
+    observer.start()
+
+    log(f"👀 Watching directory for new logs: {LOG_DIR}")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
