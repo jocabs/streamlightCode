@@ -1,1 +1,59 @@
+########### Script for app.py ###########
+import streamlit as st
+from auth import login, check_auth
+
+st.set_page_config(page_title="Login", layout="centered")
+
+# --- Initialize session state ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "page" not in st.session_state:
+    st.session_state.page = None
+
+# --- LOGIN PAGE ---
+if not st.session_state.authenticated:
+    st.title("🔐 Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if login(username, password):
+            st.session_state.authenticated = True
+            st.success("Login successful ✅")
+            st.stop()  # Stop so app reloads in logged-in state
+        else:
+            st.error("❌ Incorrect username or password")
+
+    # --- Load selected page ---
+    if st.session_state.page == "NPS Log Upload":
+        import pages._1_NPS_Log_Upload as nps_upload
+        nps_upload.run()
+    elif st.session_state.page == "Historical NPS":
+        import pages.NPS_History as nps_history
+        nps_history.run()
+    elif st.session_state.page == "Inventory":
+        import pages.inventory as inventory
+        inventory.run()
+
+########### Script for auth.py ###########
+# auth.py
+import streamlit as st
+
+# Simple username/password
+USERS = {
+    "admin": "password123"  # Change to your username/password
+}
+
+def login(username, password):
+    """Return True if credentials are correct."""
+    return USERS.get(username) == password
+
+def check_auth():
+    """Stop execution if user not logged in."""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if not st.session_state.authenticated:
+        st.warning("🔐 Please log in first.")
+        st.stop()
+
 
