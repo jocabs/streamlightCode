@@ -1,0 +1,204 @@
+cat 1_NPS_Log_Upload.py
+import os
+import pandas as pd
+import xml.etree.ElementTree as ET
+from datetime import datetime
+import streamlit as st
+from auth import check_auth
+
+# --- Page Configuration --
+st.set_page_config(
+    page_title="NPS Log Upload",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- Protect this page ---
+check_auth()
+
+st.title("📤 NPS Log Upload")
+
+# --- Directories ---
+LOG_DIR = os.path.expanduser("~/nps_app/logs")
+CSV_DIR = os.path.expanduser("~/nps_app/csv/nps")
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(CSV_DIR, exist_ok=True)
+
+# --------------------------
+# Function to convert log to CSV
+# --------------------------
+def convert_log_to_csv(log_path):
+    """
+    Converts a .log XML file into CSV.
+    Missing timestamps are filled with conversion datetime.
+    """
+    with open(log_path, "r") as f:
+        xml_content = f.read()
+
+    wrapped_xml = f"<Events>{xml_content}</Events>"
+    root = ET.fromstring(wrapped_xml)
+
+    data = []
+    conversion_time = datetime.now()
+
+    for event in root.findall("Event"):
+        timestamp = event.findtext("Timestamp", "").strip()
+        username = event.findtext("User-Name", "").strip()
+        nas_ip = event.findtext("NAS-IP-Address", "").strip()
+        reason = event.findtext("Reason-Code", "").strip()
+        client_mac = event.findtext("Calling-Station-Id", "").strip()
+        called_id = event.findtext("Called-Station-Id", "").strip()
+
+        ap_mac, ssid = ("", "")
+        if ":" in called_id:
+            parts = called_id.split(":")
+            ap_mac = parts[0]
+            ssid = parts[1]
+
+        result_map = {"0": "Success", "16": "Accounting"}
+        result = result_map.get(reason, "Other")
+
+        # Fill missing timestamp
+        if timestamp:
+            try:
+                event_time = datetime.strptime(timestamp, "%H:%M:%S")
+                full_timestamp = conversion_time.replace(
+                    hour=event_time.hour,
+                    minute=event_time.minute,
+                    second=event_time.second
+                )
+            except Exception:
+                full_timestamp = conversion_time
+        else:
+            full_timestamp = conversion_time
+
+        data.append({
+            "Timestamp": full_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "UserName": username,
+            "NASIP": nas_ip,
+            "ClientMAC": client_mac,
+            "AccessPoint": ap_mac,
+            "SSID": ssid,
+            "ReasonCode": reason,
+            "Result": result
+        })
+
+    # Save CSV
+    base_name = os.path.splitext(os.path.basename(log_path))[0]
+    timestamp_str = conversion_time.strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"{base_name}_{timestamp_str}.csv"
+    csv_path = os.path.join(CSV_DIR, csv_filename)
+
+    df = pd.DataFrame(data)
+    df.to_csv(csv_path, index=False)
+
+    return csv_path
+
+# --------------------------
+# Streamlit App
+# --------------------------
+st.header("NPS Log Upload")
+
+# Sidebar - Upload LOG
+uploaded_log = st.sidebar.file_uploader("Upload .log file", type=["log"])
+if uploaded_log is not None:
+    temp_log_path = os.path.join(LOG_DIR, uploaded_log.name)
+    with open(temp_log_path, "wb") as f:
+        f.write(uploaded_log.getbuffer())
+    csv_file = convert_log_to_csv(temp_log_path)
+    st.success(f"Converted to CSV: {csv_file}")
+
+# Sidebar - Upload CSV
+uploaded_csv = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
+if uploaded_csv is not None:
+    df = pd.read_csv(uploaded_csv)
+    st.success(f"CSV {uploaded_csv.name} uploaded successfully!")
+
+# --------------------------
+# Display Historical NPS
+# --------------------------
+st.header("📜 Historical NPS Data")
+
+all_csv_files = [os.path.join(CSV_DIR, f) for f in os.listdir(CSV_DIR) if f.endswith(".csv")]
+df_list = []
+
+for csv_file in all_csv_files:
+    try:
+        df = pd.read_csv(csv_file)
+        if "Timestamp" in df.columns:
+            df_list.append(df)
+        else:
+            st.warning(f"Skipped {csv_file}: missing 'Timestamp' column")
+    except Exception as e:
+        st.error(f"Failed to read {csv_file}: {e}")
+
+if df_list:
+    df_all = pd.concat(df_list, ignore_index=True)
+    df_all["Timestamp"] = pd.to_datetime(df_all["Timestamp"], errors="coerce")
+    df_all.sort_values("Timestamp", inplace=True)
+    st.dataframe(df_all)
+else:
+    st.info("No valid historical NPS CSVs found.")
+
+# --------------------------
+# 📂 List Existing Files
+# --------------------------
+st.header("📂 Existing Files")
+
+# --- Left: LOG files ---
+st.subheader("🧾 Existing .log Files")
+log_files = sorted(os.listdir(LOG_DIR))
+if log_files:
+    st.write(f"Total: **{len(log_files)}**")
+    st.dataframe(pd.DataFrame({"Log Files": log_files}))
+else:
+    st.info("No .log files found.")
+
+# --- Right: CSV files ---
+st.subheader("📊 Existing .csv Files")
+csv_files = sorted(os.listdir(CSV_DIR))
+if csv_files:
+    st.write(f"Total: **{len(csv_files)}**")
+
+    # Build table with details
+    file_info = []
+    for csv_name in csv_files:
+        csv_path = os.path.join(CSV_DIR, csv_name)
+        stats = os.stat(csv_path)
+        modified = datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        size_kb = round(stats.st_size / 1024, 2)
+        file_info.append({
+            "File Name": csv_name,
+            "Last Modified": modified,
+            "Size (KB)": size_kb
+        })
+
+    df_info = pd.DataFrame(file_info)
+
+    # --- Add search and sorting ---
+    search_query = st.text_input("🔍 Search file name:")
+    if search_query:
+        df_info = df_info[df_info["File Name"].str.contains(search_query, case=False, na=False)]
+
+    sort_column = st.selectbox("Sort by:", df_info.columns, index=1)
+    sort_order = st.radio("Order:", ["Ascending", "Descending"], horizontal=True)
+    ascending = sort_order == "Ascending"
+    df_info = df_info.sort_values(by=sort_column, ascending=ascending)
+
+    # Display table
+    st.dataframe(df_info, hide_index=True, use_container_width=True)
+
+    # Download buttons
+    st.markdown("#### ⬇️ Download CSV Files")
+    for csv_name in df_info["File Name"]:
+        csv_path = os.path.join(CSV_DIR, csv_name)
+        with open(csv_path, "rb") as f:
+            st.download_button(
+                label=f"Download {csv_name}",
+                data=f,
+                file_name=csv_name,
+                mime="text/csv",
+                key=f"download_{csv_name}"
+            )
+else:
+    st.info("No .csv files found.")
